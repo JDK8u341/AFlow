@@ -1,0 +1,6 @@
+@aflow
+
+model pause{
+    input("Press Enter to CONTINUE....")
+    # -> rs("exit")
+}

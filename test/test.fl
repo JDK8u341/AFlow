@@ -1,0 +1,51 @@
+@aflow {testd}
+@in_parma "Hello World"
+
+model lib{
+    # map test_l("Hello World!")
+      parallel("true") {
+        test_l("Hello World!"),
+        test_l("hEllo wOrld!"),
+        test_l(int_tuple`1,3,4,5`)
+    }
+    -> test_l(2)
+    -> test_l(3)
+    -> redo
+        select tc("s1") {
+            model s1{
+                print("s1")
+            },
+            model s2{
+                print("s2")
+            }
+        }
+    $l
+    -> test_l(3)
+    -> print($PyObj)
+    -> do tadd(1)
+        while tw(7)
+    -> test_l(4)
+    -> print
+    -> m = model sub {
+        rect
+        -> &m
+    }
+    -> cmp(">=",7)
+    -> select if {
+        model then {
+            cmp(">=",7)
+            -> print("then")
+            -> select if {
+                model then {
+                    print("then then")
+                }
+            }
+        },
+        model else {
+            print("else")
+        }
+    }
+    -> print($l)
+    -> exec("import random as rd\nresult = rd.random()")
+    -> print
+}

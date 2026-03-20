@@ -1,0 +1,28 @@
+@aflow
+@in_parma "Hello World" type str
+# @contexts layer_cnt
+# @in_parma!
+
+model main {
+    print(value="hello world")
+    -> op("+","*2")
+    -> set_reg("s1")
+    -> swap_data_reg("s1")
+    -> const_ret("CB")
+    -> set_reg($REG_OP_KEY)
+    -> const_ret("ESQB")
+    -> set_reg
+    -> read_reg
+    -> print
+    -> cmp("==","ESQB")
+    -> do model sub {cmp("!=","ESQB") -> print("HHH")} while while_if
+    -> const_ret("SQB")
+    -> set_reg("s1")
+    -> const_ret("BAS")
+    -> set_reg("s2")
+    -> const_ret("s2")
+    -> swap_reg("s1")
+    -> rr("s1") -> print -> rr("s2") -> print("你好！")
+    -> %pause.fl%
+    -> %pause.fl%
+}
