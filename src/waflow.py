@@ -3,7 +3,10 @@ from strt import *
 from aflow import *
 # import asyncio
 
+import sys
 
+# 添加当前工作目录到sys.path以导入工作目录下的模块
+sys.path.insert(0, os.getcwd())
 
 @click.command()
 @click.argument("file", type=click.Path(exists=True))
