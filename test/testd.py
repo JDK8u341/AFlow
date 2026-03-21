@@ -1,5 +1,5 @@
-from strt import DefineRegister
-from aflow import *
+from ..src.strt import DefineRegister
+from ..src.aflow import *
 from dataclasses import dataclass
 
 reg = DefineRegister()

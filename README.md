@@ -37,12 +37,17 @@ model main {
 
 将它保存为 `hello_world.fl`
 
-和`waflow.py`置于同一目录下
+假设这个文件置与`AFlow`目录下
 
 在终端中执行
 
 ```bash
-python .\waflow.py .\hello_world.fl
+python .\src\waflow.py .\hello_world.fl
+```
+
+或者直接使用`examples`文件夹下的示例
+```bash
+python .\src\waflow.py .\examples\hello_world.fl
 ```
 
 输出：
