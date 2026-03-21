@@ -1,0 +1,6 @@
+@aflow # 文件类型声明
+
+# 入口模型(名称可任意)
+model main {
+    print("Hello World")
+}
