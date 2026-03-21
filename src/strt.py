@@ -5,7 +5,6 @@ from dataclasses import dataclass,field
 from enum import Enum,auto
 from typing import Type,Optional
 
-
 # import asyncio
 
 # 节点类型枚举
@@ -41,7 +40,6 @@ class Node:
 # 从AST树转换到IR
 class TransTreeToIR(lark.Transformer):
     # 内置定义
-    BUILT_IN_DEFINES = {'std':'reg'}
     def __init__(self,*args,**kwargs):
         # 引入头位置
         self.define_source_file_strs_regs = {}
@@ -87,7 +85,6 @@ class TransTreeToIR(lark.Transformer):
         if t[0] is not None:
             for i in t[0]:
                 self.define_source_file_strs_regs.update(i)
-        self.define_source_file_strs_regs.update(self.BUILT_IN_DEFINES)
         # 如果不是None
         if t[1] is not None:
             # 类型映射写法
@@ -472,6 +469,7 @@ class TransIRToModel:
 
 # 总转换类
 class StrConverter:
+
     def __init__(self,stage_name: str,layer_clss = None,is_file_converter = True):
         # print(f"ebnf = {ebnf}")
         # 初始化parser

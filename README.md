@@ -27,7 +27,7 @@ pip install -r requirements.txt
 让我们来编写一段**Hello World**吧！
 
 ```aflow
-@aflow # 文件类型声明
+@aflow {std} # 文件类型和库导入声明
 
 # 入口模型(名称可任意 )
 model main {
