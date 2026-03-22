@@ -1,5 +1,5 @@
 import click
-from strt import *
+from strt import StrConverter
 from aflow import *
 # import asyncio
 

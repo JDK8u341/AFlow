@@ -1,0 +1,8 @@
+@aflow {std}
+
+model stream {
+    const_ret("Hello")   # 产生数据 "Hello"
+    -> print             # 打印 "Hello"
+    -> const_ret("World")# 产生新数据 "World"，覆盖旧数据
+    -> print             # 打印 "World"
+}

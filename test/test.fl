@@ -1,4 +1,4 @@
-@aflow {testd}
+@aflow {std,testd}
 @in_parma "Hello World"
 
 model lib{
