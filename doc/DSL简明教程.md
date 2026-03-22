@@ -2,7 +2,7 @@
 
 ---
 # 入门
-好的不想说废话了，先把Hello World用的代码端上来讲一讲
+好的不说废话了，先把Hello World用的代码端上来讲一讲
 
 ```aflow
 @aflow {std} # 文件类型和库导入声明
@@ -27,9 +27,77 @@ model main {
 
 这里我们定义了一个名称为`main`的模型
 
-里面只有一个`layer`,即用于打印数据的`print`
+里面只有一个`Layer`,即用于打印数据的`print`
 
 运行以后你会看见命令行输出`Hello World`
 
+## 运行方法
+
+有两种方式,第一种是使用我们提供的CLI工具`waflow`
+```bash
+python ./waflow <FILE_PATH>
+```
+
+第二种是手动构造`strt.StrConverter`\
+具体可见`DSL进阶教程.md`
+
 > 没听懂?\
 > 没听懂就对了，继续看吧兄
+
+---
+
+# Layer的创建
+格式如下
+
+```text
+layer(*args,**kwargs) 
+```
+
+如果是没有参数也可以使用
+```text
+layer
+```
+
+---
+#  Layer链
+Layer链定义了数据处理的流程，Layer之间使用`->`相连\
+格式如下
+```aflow
+layer1 -> layer2 -> layer3
+```
+数据将会从`layer1`经过`layer2`流向`layer3`
+
+# 数据流动
+
+现在让我们把上面的内容结合起来
+```aflow
+@aflow {std}
+
+model stream {
+    const_ret("Hello")   # 产生数据 "Hello"
+    -> print             # 打印 "Hello"
+    -> const_ret("World")# 产生新数据 "World"，覆盖旧数据
+    -> print             # 打印 "World"
+}
+```
+其中,`print`之前介绍过了\
+`const_ret`是返回固定数据,在`std`中定义
+
+> 本示例位于`examples/stream.fl`\
+> 可直接运行`python ..\src\waflow.py ..\examples\stream.fl`
+> **WARN: 该命令相对于doc目录**\
+> **接下来的命令如为说明统一相对于doc目录!!!**
+
+运行后可以看见输出为
+```text
+Hello
+World
+```
+可以看到，首先执行了`const_ret("Hello")`返回了数据`Hello`\
+然后执行了`print`打印出数据`Hello`\
+又执行了`const_ret("World")`变更数据为`World`\
+最后再次执行`print`打印`World`
+
+
+
+
