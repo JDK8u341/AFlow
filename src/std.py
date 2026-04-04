@@ -18,7 +18,9 @@ for member in ControlFlagKey:
 # 工具类：打印数据
 @reg.register_layer("print")
 class PrintDataLayer(Layer):
-    def __init__(self,value=None):
+    NO_MERGE = True
+    def __init__(self, value=None, ):
+        super().__init__()
         self.value = value
 
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
@@ -28,7 +30,9 @@ class PrintDataLayer(Layer):
 # 工具类：断言
 @reg.register_layer("assert")
 class Assert(Layer):
-    def __init__(self, value):
+    NO_MERGE = True
+    def __init__(self, value, ):
+        super().__init__()
         self.value = value
 
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
@@ -38,7 +42,8 @@ class Assert(Layer):
 # 工具类：exec
 @reg.register_layer("exec")
 class PyExec(Layer):
-    def __init__(self, expr):
+    def __init__(self, expr, ):
+        super().__init__()
         self.expr = expr
 
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
@@ -51,7 +56,8 @@ class PyExec(Layer):
 # 工具类：eval
 @reg.register_layer("eval")
 class PyEval(Layer):
-    def __init__(self, expr):
+    def __init__(self, expr, ):
+        super().__init__()
         self.expr = expr
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -60,7 +66,8 @@ class PyEval(Layer):
 # 工具类：input
 @reg.register_layer("input")
 class ConsoleInput(Layer):
-    def __init__(self, value):
+    def __init__(self, value, ):
+        super().__init__()
         self.value = value
 
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
@@ -78,7 +85,8 @@ class PyCmpOperate(Layer):
         "==": operator.eq,
         "!=": operator.ne,
     }
-    def __init__(self, op_name: str,other: Any) -> None:
+    def __init__(self, op_name: str, other: Any, ) -> None:
+        super().__init__()
         self.op_name = op_name
         self.other = other
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -97,7 +105,8 @@ class PyOperate(Layer):
         "//": operator.floordiv,
         "**": operator.pow,
     }
-    def __init__(self, op_name: str,other: Any) -> None:
+    def __init__(self, op_name: str, other: Any, ) -> None:
+        super().__init__()
         self.op_name = op_name
         self.other = other
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -144,8 +153,9 @@ def get_op_reg_key(reg_k: str | None,context_bag: "ContextBag") -> Any:
 @reg.register_layer("set_reg")
 @reg.register_layer("sr")
 class SetToContextReg(Layer):
-    def __init__(self,reg_k=None):
+    def __init__(self, reg_k=None, ):
         # 键
+        super().__init__()
         self.reg_k = reg_k
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -159,8 +169,9 @@ class SetToContextReg(Layer):
 @reg.register_layer("read_reg")
 @reg.register_layer("rr")
 class ReadFromContextReg(Layer):
-    def __init__(self,reg_k=None):
+    def __init__(self, reg_k=None, ):
         # 键
+        super().__init__()
         self.reg_k = reg_k
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -172,8 +183,9 @@ class ReadFromContextReg(Layer):
 @reg.register_layer("swap_data_reg")
 @reg.register_layer("sdr")
 class SwapContextDataToReg(Layer):
-    def __init__(self,reg_k=None):
+    def __init__(self, reg_k=None, ):
         # 键
+        super().__init__()
         self.reg_k = reg_k
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -187,8 +199,9 @@ class SwapContextDataToReg(Layer):
 @reg.register_layer("swap_reg")
 @reg.register_layer("swr")
 class SwapContextRegToReg(Layer):
-    def __init__(self,reg2_k=None):
+    def __init__(self, reg2_k=None, ):
         # 键
+        super().__init__()
         self.reg2_k = reg2_k
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -204,7 +217,8 @@ class SwapContextRegToReg(Layer):
 @reg.register_layer("const_ret")
 @reg.register_layer("cr")
 class ConstValueLayer(Layer):
-    def __init__(self,value):
+    def __init__(self, value, ):
+        super().__init__()
         self.value = value
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
@@ -217,7 +231,8 @@ class RetSignal(Layer):
     # 信号映射
     signal_map = {member.name.lower():member for member in Signal}
 
-    def __init__(self,signal_name: str):
+    def __init__(self, signal_name: str, ):
+        super().__init__()
         self.signal = self.signal_map[signal_name]
 
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":

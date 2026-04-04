@@ -1,9 +1,13 @@
+import os.path
+
 import lark
 from ebnf import ebnf
 from aflow import *
 from dataclasses import dataclass,field
 from enum import Enum,auto
 from typing import Type,Optional
+from contextlib import contextmanager
+from utils import *
 
 # import asyncio
 
@@ -443,18 +447,21 @@ class TransIRToModel:
     def transform_link(self,link_node: Node):
         # 获取路径
         path = link_node.params
-        # 打开文件
-        with open(path,'r',encoding='utf-8') as f:
-            # 获取字符
-            link_text = f.read()
-            # 构造转换器
-            sc = StrConverter(path)
-            # 转换
-            m,param,ctx_objs = sc.transform(
-                link_text
-                # 常量映射表(模板参数表)
-                ,const_value_map={i.name : self.transform_one_parma(i.params) for i in link_node.extend_params['param']} if link_node.extend_params['param'] is not None else {}
-                ,processed_entry_model=self.processed_entry_model | self.delta_processed_entry_model)
+        # 修改工作目录到path
+        parent = os.path.dirname(path)
+        with chdir(parent if parent != '' else '.'):
+            # 打开文件
+            with open(path,'r',encoding='utf-8') as f:
+                # 获取字符
+                link_text = f.read()
+                # 构造转换器
+                sc = StrConverter(path)
+                # 转换
+                m,param,ctx_objs = sc.transform(
+                    link_text
+                    # 常量映射表(模板参数表)
+                    ,const_value_map={i.name : self.transform_one_parma(i.params) for i in link_node.extend_params['param']} if link_node.extend_params['param'] is not None else {}
+                    ,processed_entry_model=self.processed_entry_model | self.delta_processed_entry_model)
         self.ctx_objs.extend(ctx_objs)
         return m
 

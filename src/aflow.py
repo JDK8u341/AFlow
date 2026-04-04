@@ -1,4 +1,5 @@
 import abc
+import copy
 import enum
 import os
 import random
@@ -10,7 +11,7 @@ import inspect
 import functools
 import itertools
 from multiprocessing import Value,Lock
-
+import uuid
 
 MAX_PROCESS_COUNT = Value('i',os.cpu_count())  #最大进程使用量
 USE_PROCESS = Value('i',0,lock=False)     #已使用进程数量
@@ -101,33 +102,68 @@ async def get_remaining_process(use_process_num: int,is_user_set=False) -> int:
             else:   #否则不分配
                 return 0
 
-#Handle抽象基类
+# Handle抽象基类
 class Handle(ABC):
+    def __init__(self,*args,**kwargs):
+        self.hid = None
+
+    # 懒生成hid
+    def get_hid(self):
+        if self.hid is None:
+            self.hid = uuid.uuid4()
+        return self.hid
+
+    # 设置hid
+    def set_hid(self,hid):
+        self.hid = hid
+        return self
+
+    async def copy(self) -> Union["Handle",None]:
+        return copy.deepcopy(self)
+
+    async def merge(self,other):
+        raise NotImplementedError("Stateful Handler Must Define Function \"merge\"")
+
+    async def merge_all(self):
+        raise NotImplementedError("Stateful Handler Must Define Function \"merge_all\"")
+
     @abc.abstractmethod
     async def handle(self, data: T,context_bag:"ContextBag") -> V:
         raise NotImplementedError
 
     #并发处理
-    async def concurrency_handle(self,data: T,context_bag:"ContextBag") -> tuple[V,"ContextBag"]:
+    async def concurrency_handle(self,data: T,context_bag:"ContextBag") -> tuple[V,"ContextBag","Handle"]:
         clean_context_bag = await context_bag.get_clear_context_bag()   #获取干净副本
         res = await self.handle(data,clean_context_bag) #使用干净副本处理
         # 如果是单层调用则手动更新
         if isinstance(self,Layer):
             await clean_context_bag.update_contexts(self,data,isinstance(self,ConcurrencyLayer))
 
-        return res,clean_context_bag    #返回结果和上下文包
+        return res,clean_context_bag,self    # 返回结果和上下文包和自己
+
+    # 复制实例
+    @staticmethod
+    async def copy_handlers(handles):
+        new_handles = []
+        for h in handles:
+            # 对于Layer处理状态
+            if isinstance(h, Layer):
+                if not h.NO_MERGE:
+                    new_handles.append(await h.copy())
+                else:
+                    new_handles.append(h)
+            elif isinstance(h, Model):
+                new_handles.append(await h.copy())
+        return new_handles
 
 
 
 class Layer(Handle,ABC):   #抽象基类Layer
-    @abc.abstractmethod
-    def __init__(self,*args,**kwargs):
-        pass
+    NO_MERGE = False
 
     @abc.abstractmethod
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":   #每个层自己的处理方法
+    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":   # 每个层自己的处理方法
         raise NotImplementedError
-
 
 #上下文对象
 class Context(ABC):
@@ -249,14 +285,30 @@ class ContextBag:
 
 # 抽象基类：并发层
 class ConcurrencyLayer(Layer,ABC):
+    NO_MERGE = True
     # 抽象方法：处理
     @abc.abstractmethod
     async def handle(self, data:"T",context_bag:"ContextBag") -> "V":
         raise NotImplementedError
 
+    # 静态方法：获取UUID -> OBJ映射表
+    @staticmethod
+    def get_map_of_uuid_to_handler(handlers):
+        map_of_uuid_to_handler = {}
+        # 遍历并设置映射
+        for l in handlers:
+            # 获取hid
+            hid = l.get_hid()
+            # 更改映射表
+            if hid in map_of_uuid_to_handler.keys():
+                map_of_uuid_to_handler[hid].append(l)
+            else:
+                map_of_uuid_to_handler[hid] = [l]
+        return map_of_uuid_to_handler
+
     # 静态方法: 收集并合并数据
     @staticmethod
-    async def merge_and_collect_data(results,context_bag:"ContextBag"):
+    async def merge_and_collect(results,context_bag:"ContextBag",hid_map,*handlers):
         res_datas = []  #数据列表
         is_exit = False  # 包含退出信号
         is_break_model = False  # 包含跳出模型信号
@@ -276,9 +328,14 @@ class ConcurrencyLayer(Layer,ABC):
             else:
                 # 处理数据和上下文
                 # 解包数据
-                result, _context_bag = i
+                result, _context_bag,handler = i
                 # 合并上下文
                 await context_bag.merge(_context_bag, concurrency_merge=True)
+                # 合并handler
+                for l in hid_map[handler.get_hid()]:
+                    if not l.NO_MERGE:
+                        await l.merge(handler)
+                        await l.merge_all()
 
 
             # 重新包装包含特殊控制流信号的列表
@@ -334,10 +391,12 @@ class ConcurrencyLayer(Layer,ABC):
 
 #工具Layer：并发
 class ApplyConcurrencyLayer(ConcurrencyLayer):
-    def __init__(self, layer_or_model_s: Union[tuple[Layer, ...], tuple["Model", ...]], is_cpu_dense,use_process_num):
+    def __init__(self, layer_or_model_s: Union[tuple[Layer, ...], tuple["Model", ...]], is_cpu_dense, use_process_num):
+        super().__init__()
         self.layer_or_model_s: Union[tuple[Layer, ...], tuple["Model", ...]] = layer_or_model_s   #层和模型的列表
         self.is_cpu_dense: bool = is_cpu_dense  #是否CPU密集
-        self.use_process_num = use_process_num
+        self.use_process_num = use_process_num  # 进程数量限制
+        self.hid_map = self.get_map_of_uuid_to_handler(self.layer_or_model_s) # hid映射表
 
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
         global USE_PROCESS
@@ -345,8 +404,9 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
         if len(self.layer_or_model_s) == 0: #如果是空的则直接返回
             return []
 
-        tasks = []  #任务列表
-        if self.is_cpu_dense:   #如果是CPU密集型且不是sub的
+        tasks = []  # 任务列表
+
+        if self.is_cpu_dense:   #如果是CPU密集型
             use = self.use_process_num if self.use_process_num is not None else len(self.layer_or_model_s)  # 需要使用的进程数量
             retry_count = 0
             while True:
@@ -357,7 +417,7 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
                         #遍历层和模型的列表
                         for l in self.layer_or_model_s:
                             #上报处理
-                            task = p.apply(l.concurrency_handle, (data,context_bag))
+                            task = p.apply((await l.copy()).concurrency_handle, (data,context_bag))
                             tasks.append(task)
                         try:
                             result = await asyncio.gather(*tasks,return_exceptions=True)
@@ -369,19 +429,21 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
                     retry_count += 1
                     await asyncio.sleep(delay=delay_time(retry_count))
         else:
-            result = await asyncio.gather(*(l.concurrency_handle(data,context_bag) for l in self.layer_or_model_s),return_exceptions=True)
+            result = await asyncio.gather(*((await l.copy()).concurrency_handle(data,context_bag) for l in self.layer_or_model_s),return_exceptions=True)
 
         #合并上下文并收集结果
-        res_datas = await self.merge_and_collect_data(result, context_bag)
+        res_datas = await self.merge_and_collect(result, context_bag,self.hid_map,*self.layer_or_model_s)
         return res_datas
 
 
 #工具Layer：映射并发
 class MapConcurrencyLayer(ConcurrencyLayer):
-    def __init__(self, layer_or_model: Union[Layer,"Model"],is_cpu_dense,use_process_num):
+    def __init__(self, layer_or_model: Union[Layer, "Model"], is_cpu_dense, use_process_num):
+        super().__init__()
         self.layer_or_model = layer_or_model    #层或模型
         self.is_cpu_dense: bool = is_cpu_dense  #是否CPU密集
-        self.use_process_num = use_process_num
+        self.use_process_num = use_process_num  # 限制进程数量
+        self.hid_map = {self.layer_or_model.get_hid():self.layer_or_model} # HID 映射表
 
     async def handle(self, data: T,context_bag:"ContextBag") -> V:
         global USE_PROCESS
@@ -389,22 +451,21 @@ class MapConcurrencyLayer(ConcurrencyLayer):
         if ((not isinstance(data,Iterable)) or isinstance(data,(str,bytes))
                 or (isinstance(data, DataWithSignal)
                     and (data.get_signal() == Signal.DIRECT_ITER
-                         or data.get_signal() == Signal.ERROR))):   #如果不是可迭代或者需要按字面解析的迭代器或者是错误信号则手动包裹
+                         or data.get_signal() == Signal.ERROR))):   # 如果不是可迭代或者需要按字面解析的迭代器或者是错误信号则手动包裹
             data = [data]
 
-        if len(data) == 0:  #如果是空的则直接返回
+        if len(data) == 0:  # 如果是空的则直接返回
             return []
 
         if self.is_cpu_dense:
-            use = self.use_process_num if self.use_process_num is not None else len(data)   #需要的进程数
-            retry_count = 0 #尝试次数
+            use = self.use_process_num if self.use_process_num is not None else len(data)   # 需要的进程数
+            retry_count = 0 # 尝试次数
             while True:
                 num = await get_remaining_process(use, is_user_set=self.use_process_num is not None)
                 if num > 0:
                     try:
                         async with Pool(processes=num) as p:
-                            results = await p.starmap(self.layer_or_model.concurrency_handle, iter(zip(data,itertools.repeat(context_bag, len(data))))) #批量提交
-
+                            results = await p.starmap((await self.layer_or_model.copy()).concurrency_handle, iter(zip(data,itertools.repeat(context_bag, len(data))))) #批量提交
                     finally:
                         with USE_P_LOCK:
                             USE_PROCESS.value -= num
@@ -416,7 +477,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
         else:
             results = await asyncio.gather(*(self.layer_or_model.concurrency_handle(d,context_bag) for d in data),return_exceptions=True)
 
-        res_datas = await self.merge_and_collect_data(results,context_bag)
+        res_datas = await self.merge_and_collect(results, context_bag,self.hid_map,self.layer_or_model)
 
         return res_datas
 
@@ -424,7 +485,10 @@ class MapConcurrencyLayer(ConcurrencyLayer):
 
 #特殊Layer：重试
 class RetryLayer(Layer):
-    def __init__(self,retry_num: int,catch_err_type: type[Exception],try_handle: Union[Layer, "Model"],fatal_handle: Union[Layer, "Model"] = None):
+    NO_MERGE = True
+    def __init__(self, retry_num: int, catch_err_type: type[Exception], try_handle: Union[Layer, "Model"],
+                 fatal_handle: Union[Layer, "Model"] = None):
+        super().__init__()
         self.retry_num: int = retry_num #重试次数
         self.catch_err_type: type[Exception] = catch_err_type   #抓取的Err类型
         self.try_handle = try_handle  #尝试的层或模型
@@ -461,7 +525,9 @@ class RetryLayer(Layer):
 
 #特殊Layer：选择
 class ChoiceLayer(Layer, ABC):
+    NO_MERGE = True
     def __init__(self, *choices: "Model"):
+        super().__init__()
         self.choices:dict[str,"Model"] = {m.get_name():m for m in choices}
 
     #抽象方法choice，必须由子层实现
@@ -479,7 +545,9 @@ class ChoiceLayer(Layer, ABC):
 
 #特殊Layer：循环
 class LoopLayer(Layer, ABC):
-    def __init__(self, loops: Union["Model",Layer]):
+    NO_MERGE = True
+    def __init__(self, loops: Union["Model", Layer]):
+        super().__init__()
         self.loops = loops  #循环体
 
     @abc.abstractmethod
@@ -507,6 +575,7 @@ class LoopLayer(Layer, ABC):
 
 #特殊Layer: While循环
 class WhileLoopLayer(LoopLayer, ABC):
+    NO_MERGE = True
     def __init__(self, loops: Union["Model",Layer]):
         super().__init__(loops)
 
@@ -525,6 +594,7 @@ class WhileLoopLayer(LoopLayer, ABC):
 
 #工具Layer：Iter循环
 class IterLoopLayer(LoopLayer):
+    NO_MERGE = True
     def __init__(self,_iter: Iterable | AsyncIterable,loops: Union["Model",Layer]):
         super().__init__(loops)
         self._iter = _iter
@@ -547,6 +617,7 @@ class IterLoopLayer(LoopLayer):
 
 #工具Layer：ReDo循环
 class ReDoLoopLayer(LoopLayer):
+    NO_MERGE = True
     def __init__(self, loops: Union["Model",Layer],loop_num):
         super().__init__(loops)
         self.do_num = loop_num
@@ -566,6 +637,7 @@ class ReDoLoopLayer(LoopLayer):
 
 #工具Layer：简单While循环
 class SimpleWhileLoopLayer(WhileLoopLayer):
+    NO_MERGE = True
     def __init__(self, loops: Union["Model",Layer],do_while_func):
         super().__init__(loops)
         self.do_while_func = do_while_func  #循环判断函数
@@ -578,20 +650,23 @@ class SimpleWhileLoopLayer(WhileLoopLayer):
 #工具Layer：退出
 class ExitLayer(Layer):
     def __init__(self):
-        pass
+        super().__init__()
     async def handle(self, data: T,context_bag:"ContextBag") -> T:
         return DataWithSignal(data,Signal.EXIT)
 
 #工具Layer：跳出模型
 class BreakModelLayer(Layer):
+    NO_MERGE = True
     def __init__(self):
-        pass
+        super().__init__()
     async def handle(self, data: T,context_bag:"ContextBag") -> T:
         return DataWithSignal(data, Signal.BREAK_MODEL)
 
 #工具Layer：函数包装
 class SimpleFuncLayer(Layer):
-    def __init__(self,func: Callable[[T,ContextBag], V],ret_data_self=False):
+    NO_MERGE = True
+    def __init__(self, func: Callable[[T, ContextBag], V], ret_data_self=False):
+        super().__init__()
         self.func = func
         self.is_func_async = inspect.iscoroutinefunction(func)
         self.ret_data_self = ret_data_self
@@ -605,10 +680,12 @@ class SimpleFuncLayer(Layer):
 
 
 class Model(Handle):  # 模型？？？？
-    def __init__(self, name: str,context_clss: Iterable[Type[Context]] | None = None):
+    def __init__(self, name: str, context_clss: Iterable[Type[Context]] | None = None):
+        super().__init__()
         self.name: str = name   #名称
         self.handles: list[Layer | Model] = []   #层合集
-        self.context_clss = context_clss if context_clss is not None else []    #初始上下文
+        self.context_clss = context_clss if context_clss is not None else []    # 初始上下文
+        self.NO_STATE = len([0 for i in self.handles if i.NO_MERGE]) == 0   # 是否无状态
 
     #添加一个层
     def layer(self, layer_: Layer) -> "Model":
@@ -673,10 +750,12 @@ class Model(Handle):  # 模型？？？？
         context_bag = context_bag \
             if context_bag is not None \
             else await ContextBag.create(*(context_cls() for context_cls in self.context_clss)) #初始化上下文包
+
         for l in self.handles:
             layer_cnt += 1
             try:
                 new_data = await l.handle(data,context_bag) #运行
+                # print("LSDCC")
             except Exception as e:
                 raise RuntimeError(f"ERROR {type(e)}"
                                    f"\n{e}"
@@ -684,12 +763,19 @@ class Model(Handle):  # 模型？？？？
                     from e
             await context_bag.update_contexts(l,new_data,isinstance(l,ConcurrencyLayer))   #更新上下文
             #检查信号
+            # print(f"new_data := {new_data}")
+            # print(type(new_data))
+            # print(DataWithSignal)
+            # print(type(new_data) is DataWithSignal)
+            # print(type(new_data).__module__, DataWithSignal.__module__)
             if isinstance(new_data, DataWithSignal):
+                # print("CHeCK")
                 #对于EXIT，BREAK_LOOP,CONTINUE_LOOP信号返回DataWithSignal
                 if new_data.get_signal() == Signal.EXIT or new_data.get_signal() == Signal.BREAK_LOOP or new_data.get_signal() == Signal.CONTINUE_LOOP:
                     return new_data
                 #对于BREAK_MODEL信号返回data
                 elif new_data.get_signal() == Signal.BREAK_MODEL:
+                    # print("BMBM")
                     return new_data.get_data()
                 #对于NONE信号，忽略其处理
                 elif new_data.get_signal() == Signal.NONE:
@@ -719,6 +805,34 @@ class Model(Handle):  # 模型？？？？
 
     def __str__(self) -> str:
         return f"Model<name = {self.name},layers = {[str(l) if l != self else '&Self' for l in self.handles]}>"
+
+    # 复制
+    async def copy(self) -> "Model":
+        # 创建新的实例并返回
+        new_model = self.__class__(self.name)
+        new_model.handles = await self.copy_handlers(self.handles)
+        return new_model
+
+    # 合并
+    async def merge(self,other):
+        # 检查长度
+        other_len = len(other.handles)
+        self_len = len(self.handles)
+        if other_len == self_len:
+            # 遍历并一一对应合并
+            for i in range(other_len):
+                other_handle = other.handles[i]
+                self_handle = self.handles[i]
+                if not other_handle.NO_MERGE or self_handle.NO_MERGE:
+                    await self_handle.merge(other_handle)
+        else:
+            raise RuntimeError("Merge Handles Count MUST Same!!!")
+
+    # 合并全部
+    async def merge_all(self):
+        for l in self.handles:
+            if not l.NO_MERGE:
+                await l.merge_all()
 
 
 # 请注意,以下装饰器已经弃用,会导致多进程序列化问题和DSL参数解析错误,请手动继承对应基类并实现对应方法

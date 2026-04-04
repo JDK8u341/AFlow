@@ -1,7 +1,8 @@
-# AFlow DSL简明入门教程
-
+AFlow DSL简明入门教程
 ---
+## 注意：所有示例都假定你在项目根目录执行命令
 # 入门
+
 好的不说废话了，先把Hello World用的代码端上来讲一讲
 
 ```aflow
@@ -34,8 +35,8 @@ model main {
 ## 运行方法
 
 有两种方式,第一种是使用我们提供的CLI工具`waflow`
-```bash
-python ./waflow <FILE_PATH>
+```text
+python waflow.py <FILE_PATH>
 ```
 
 第二种是手动构造`strt.StrConverter`\
@@ -74,7 +75,7 @@ layer1 -> layer2 -> layer3
 @aflow {std}
 
 model stream {
-    const_ret("Hello")   # 产生数据 "Hello"
+    const_ret("Hello")   # 产生一个常量值 "Hello" 作为当前数据
     -> print             # 打印 "Hello"
     -> const_ret("World")# 产生新数据 "World"，覆盖旧数据
     -> print             # 打印 "World"
@@ -84,9 +85,7 @@ model stream {
 `const_ret`是返回固定数据,在`std`中定义
 
 > 本示例位于`examples/stream.fl`\
-> 可直接运行`python ..\src\waflow.py ..\examples\stream.fl`
-> **WARN: 该命令相对于doc目录**\
-> **接下来的命令如为说明统一相对于doc目录!!!**
+> 可直接运行`python ./src/waflow.py ./examples/stream.fl`
 
 运行后可以看见输出为
 ```text
@@ -96,7 +95,9 @@ World
 可以看到，首先执行了`const_ret("Hello")`返回了数据`Hello`\
 然后执行了`print`打印出数据`Hello`\
 又执行了`const_ret("World")`变更数据为`World`\
-最后再次执行`print`打印`World`
+最后再次执行`print`打印`World`\
+按顺序流经每个层\
+> 试试把 const_ret 换成别的值，或者多加几个 print，看看输出顺序
 
 
 

@@ -1,11 +1,12 @@
 import click
 from strt import StrConverter
 from aflow import *
+from utils import *
 # import asyncio
 
 import sys
 
-# 添加当前工作目录到sys.path以导入工作目录下的模块
+# 添加当前工作目录目录到sys.path以导入工作目录下的模块
 sys.path.insert(0, os.getcwd())
 
 @click.command()
@@ -15,16 +16,20 @@ def cli(file):
     asyncio.run(main(file))
 
 async def main(file):
-    # 读取文件
-    with open(file,"r",encoding='utf-8') as f:
-        text = f.read()
-    # 初始化转换器
-    conv = StrConverter(file)
-    # 转换文件
-    m,parma,ctx_objs = conv.transform(text)
-    # 构造上下文包
-    ctx_bag = await ContextBag.create(*ctx_objs)
-    # 运行
+    parent = os.path.dirname(file)
+    with chdir(parent if parent != '' else '.'):
+        # 读取文件
+        with open(file,"r",encoding='utf-8') as f:
+            text = f.read()
+        # 添加当前文件目录目录到sys.path以导入工作目录下的模块
+        sys.path.insert(0, os.path.dirname(file))
+        # 初始化转换器
+        conv = StrConverter(file)
+        # 转换文件
+        m,parma,ctx_objs = conv.transform(text)
+        # 构造上下文包
+        ctx_bag = await ContextBag.create(*ctx_objs)
+        # 运行
     await m.run(parma,ctx_bag)
 
 if __name__ == "__main__":
