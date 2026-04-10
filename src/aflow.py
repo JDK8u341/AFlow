@@ -1,17 +1,17 @@
 import abc
 import copy
 import enum
-import os
-import random
-from aiomultiprocess import Pool
-from abc import ABC
-from typing import Union, Iterable, TypeVar, Callable, Any, AsyncIterable,Type
-import asyncio
 import inspect
-import functools
 import itertools
-from multiprocessing import Value,Lock
+import random
 import uuid
+from abc import ABC
+from multiprocessing import Value, Lock
+from typing import Union, Iterable, TypeVar, Callable, Any, AsyncIterable, Type
+
+from aiomultiprocess import Pool
+
+from utils import *
 
 MAX_PROCESS_COUNT = Value('i',os.cpu_count())  #最大进程使用量
 USE_PROCESS = Value('i',0,lock=False)     #已使用进程数量
@@ -27,21 +27,6 @@ delay_time = lambda retry_count: min(BASE_WAIT_TIME * (2 ** min(retry_count,MAX_
 T = TypeVar("T")
 V = TypeVar("V")
 
-async def call_func(self,is_async: bool,has_state:bool,func,*args,**kwargs) -> V:
-    # 如果是异步函数调用await
-    if is_async:
-        # 如果是有状态的则包含self
-        if has_state:
-            return await func(self,*args,**kwargs)
-        return await func(*args,**kwargs)
-    else:
-        # 如果不是使用线程池运行
-        loop_ = asyncio.get_running_loop()
-        if has_state:
-            func_p = functools.partial(func,self, *args, **kwargs)
-        else:
-            func_p = functools.partial(func, *args, **kwargs)
-        return await loop_.run_in_executor(None, func_p)
 
 class Signal(enum.Enum):
     EXIT = "exit"       #退出
@@ -78,14 +63,14 @@ class DataWithSignal:
         if self.signal == Signal.DIRECT_ITER:
             return iter(self.data)
         else:
-            return self
+            raise TypeError(f"This signal IS NOT DIRECT_ITER,it's {self.signal}")
 
     # 对于DIRECT_ITER的便捷处理
     def __aiter__(self) -> (AsyncIterable[T] | "DataWithSignal"):
         if self.signal == Signal.DIRECT_ITER:
             return aiter(self.data)
         else:
-            return self
+            raise TypeError(f"This signal IS NOT DIRECT_ITER,it's {self.signal}")
 
 # 获取剩余资源
 async def get_remaining_process(use_process_num: int,is_user_set=False) -> int:
@@ -429,7 +414,10 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
                     retry_count += 1
                     await asyncio.sleep(delay=delay_time(retry_count))
         else:
-            result = await asyncio.gather(*((await l.copy()).concurrency_handle(data,context_bag) for l in self.layer_or_model_s),return_exceptions=True)
+            # print(self.layer_or_model_s)
+            # print(((await l.copy()) for l in self.layer_or_model_s))
+            # print(((await l.copy()).concurrency_handle(data,context_bag) for l in self.layer_or_model_s))
+            result = await asyncio.gather(*[(await l.copy()).set_hid(l.get_hid()).concurrency_handle(data,context_bag) for l in self.layer_or_model_s],return_exceptions=True)
 
         #合并上下文并收集结果
         res_datas = await self.merge_and_collect(result, context_bag,self.hid_map,*self.layer_or_model_s)
@@ -443,7 +431,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
         self.layer_or_model = layer_or_model    #层或模型
         self.is_cpu_dense: bool = is_cpu_dense  #是否CPU密集
         self.use_process_num = use_process_num  # 限制进程数量
-        self.hid_map = {self.layer_or_model.get_hid():self.layer_or_model} # HID 映射表
+        self.hid_map = {self.layer_or_model.get_hid():[self.layer_or_model]} # HID 映射表
 
     async def handle(self, data: T,context_bag:"ContextBag") -> V:
         global USE_PROCESS
@@ -475,7 +463,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
                     await asyncio.sleep(delay=delay_time(retry_count))
 
         else:
-            results = await asyncio.gather(*(self.layer_or_model.concurrency_handle(d,context_bag) for d in data),return_exceptions=True)
+            results = await asyncio.gather(*[(await self.layer_or_model.copy()).set_hid(self.layer_or_model.get_hid()).concurrency_handle(d,context_bag) for d in data],return_exceptions=True)
 
         res_datas = await self.merge_and_collect(results, context_bag,self.hid_map,self.layer_or_model)
 
@@ -685,7 +673,7 @@ class Model(Handle):  # 模型？？？？
         self.name: str = name   #名称
         self.handles: list[Layer | Model] = []   #层合集
         self.context_clss = context_clss if context_clss is not None else []    # 初始上下文
-        self.NO_STATE = len([0 for i in self.handles if i.NO_MERGE]) == 0   # 是否无状态
+        self.NO_MERGE = len([0 for i in self.handles if i.NO_MERGE]) == 0   # 是否无状态
 
     #添加一个层
     def layer(self, layer_: Layer) -> "Model":

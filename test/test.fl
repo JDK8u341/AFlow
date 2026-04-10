@@ -8,6 +8,11 @@ model lib{
         test_l("hEllo wOrld!"),
         test_l(int_tuple`1,3,4,5`)
     }
+    -> parallel {
+        model a{
+            test_l("23")
+        }
+    }
     -> test_l(2)
     -> test_l(3)
     -> redo
