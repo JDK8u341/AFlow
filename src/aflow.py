@@ -146,11 +146,15 @@ class Handle(ABC):
 
 
 class Layer(Handle,ABC):   #抽象基类Layer
-    NO_MERGE = False
+    NO_MERGE = True
 
     @abc.abstractmethod
     async def handle(self, data: "T",context_bag:"ContextBag") -> "V":   # 每个层自己的处理方法
         raise NotImplementedError
+
+# 有状态的层
+class StatefulLayer(Layer,ABC): NO_MERGE = False
+
 
 #上下文对象
 class Context(ABC):
