@@ -9,7 +9,9 @@ reg = DefineRegister()
 # 控制标志枚举
 class ControlFlagKey(Enum):
     CMP_FLAG = "CMP_FLAG"
+    CMP_OTHER_KEY = "CMP_OTHER_KEY"
     REG_OP_KEY = "REG_OP_KEY"
+    PYOP_OTHER_KEY = "PYOP_OTHER_KEY"
 
 # 注册控制标志
 for member in ControlFlagKey:
@@ -42,6 +44,7 @@ class Assert(Layer):
 # 工具类：exec
 @reg.register_layer("exec")
 class PyExec(Layer):
+    NO_MERGE = True
     def __init__(self, expr, ):
         super().__init__()
         self.expr = expr
@@ -56,6 +59,7 @@ class PyExec(Layer):
 # 工具类：eval
 @reg.register_layer("eval")
 class PyEval(Layer):
+    NO_MERGE = True
     def __init__(self, expr, ):
         super().__init__()
         self.expr = expr
@@ -66,6 +70,7 @@ class PyEval(Layer):
 # 工具类：input
 @reg.register_layer("input")
 class ConsoleInput(Layer):
+    NO_MERGE = True
     def __init__(self, value, ):
         super().__init__()
         self.value = value
@@ -77,6 +82,7 @@ class ConsoleInput(Layer):
 # 工具类：Cmp
 @reg.register_layer("cmp")
 class PyCmpOperate(Layer):
+    NO_MERGE = True
     CMP_MAP = {
         ">": operator.gt,
         "<": operator.lt,
@@ -85,17 +91,19 @@ class PyCmpOperate(Layer):
         "==": operator.eq,
         "!=": operator.ne,
     }
-    def __init__(self, op_name: str, other: Any, ) -> None:
+    def __init__(self, op_name: str, other: Any = None, use_reg = False) -> None:
         super().__init__()
         self.op_name = op_name
         self.other = other
+        self.use_reg = use_reg
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
         # 写上下文，不影响数据流
-        context_bag.set(ControlFlagKey.CMP_FLAG, self.CMP_MAP[self.op_name](data, self.other))
+        context_bag.set(ControlFlagKey.CMP_FLAG, self.CMP_MAP[self.op_name](data, self.other if not self.use_reg  else context_bag.get(ControlFlagKey.CMP_OTHER_KEY)))
         return data
 
 @reg.register_layer("op")
 class PyOperate(Layer):
+    NO_MERGE = True
     OP_MAP = {
         "+": operator.add,
         "-": operator.sub,
@@ -105,16 +113,18 @@ class PyOperate(Layer):
         "//": operator.floordiv,
         "**": operator.pow,
     }
-    def __init__(self, op_name: str, other: Any, ) -> None:
+    def __init__(self, op_name: str, other: Any = None , use_reg = False) -> None:
         super().__init__()
         self.op_name = op_name
         self.other = other
+        self.use_reg = use_reg
     async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
-        return self.OP_MAP[self.op_name](data, self.other)
+        return self.OP_MAP[self.op_name](data, self.other if not self.use_reg else context_bag.get(ControlFlagKey.PYOP_OTHER_KEY))
 
 # 工具类：if-else
 @reg.register_layer("if")
 class PyIf(ChoiceLayer):
+    NO_MERGE = True
     async def choice(self, data: T,context_bag:"ContextBag") -> "Model":
         # 获取上下文判断
         if context_bag.have(ControlFlagKey.CMP_FLAG):
@@ -133,6 +143,7 @@ class PyIf(ChoiceLayer):
 @reg.register_layer("while_if")
 @reg.register_layer("wif")
 class WhileIf(WhileLoopLayer):
+    NO_MERGE = True
     async def do_while(self, data: T,context_bag:"ContextBag") -> bool:
         return context_bag.have(ControlFlagKey.CMP_FLAG) and context_bag.get(ControlFlagKey.CMP_FLAG)
 
@@ -153,6 +164,7 @@ def get_op_reg_key(reg_k: str | None,context_bag: "ContextBag") -> Any:
 @reg.register_layer("set_reg")
 @reg.register_layer("sr")
 class SetToContextReg(Layer):
+    NO_MERGE = True
     def __init__(self, reg_k=None, ):
         # 键
         super().__init__()
@@ -169,6 +181,7 @@ class SetToContextReg(Layer):
 @reg.register_layer("read_reg")
 @reg.register_layer("rr")
 class ReadFromContextReg(Layer):
+    NO_MERGE = True
     def __init__(self, reg_k=None, ):
         # 键
         super().__init__()
@@ -183,6 +196,7 @@ class ReadFromContextReg(Layer):
 @reg.register_layer("swap_data_reg")
 @reg.register_layer("sdr")
 class SwapContextDataToReg(Layer):
+    NO_MERGE = True
     def __init__(self, reg_k=None, ):
         # 键
         super().__init__()
@@ -199,6 +213,7 @@ class SwapContextDataToReg(Layer):
 @reg.register_layer("swap_reg")
 @reg.register_layer("swr")
 class SwapContextRegToReg(Layer):
+    NO_MERGE = True
     def __init__(self, reg2_k=None, ):
         # 键
         super().__init__()
@@ -217,6 +232,7 @@ class SwapContextRegToReg(Layer):
 @reg.register_layer("const_ret")
 @reg.register_layer("cr")
 class ConstValueLayer(Layer):
+    NO_MERGE = True
     def __init__(self, value, ):
         super().__init__()
         self.value = value
@@ -228,6 +244,7 @@ class ConstValueLayer(Layer):
 @reg.register_layer("ret_signal")
 @reg.register_layer("rs")
 class RetSignal(Layer):
+    NO_MERGE = True
     # 信号映射
     signal_map = {member.name.lower():member for member in Signal}
 

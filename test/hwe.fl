@@ -25,4 +25,9 @@ model main {
     -> rr("s1") -> print -> rr("s2") -> print("你好！")
     -> %pause.fl%
     -> %pause.fl%
+    -> const_ret(5)
+    -> set_reg($PYOP_OTHER_KEY)
+    -> const_ret(5)
+    -> op("+",use_reg=bool`true`)
+    -> print
 }

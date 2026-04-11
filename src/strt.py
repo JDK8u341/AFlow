@@ -345,7 +345,7 @@ class TransIRToModel:
             try:
                 l = self.trans_map[h.type](h)
             except KeyError:
-                raise NameError(f"Node {h} is UNKNOW Node")
+                raise NameError(f"Node {h.name} is UNKNOW Node")
                 # raise e
             handles.append(l)
             # 保存REF对象
@@ -517,7 +517,7 @@ class StrConverter:
                               +e.get_context(source_str)
                               +f"\nERROR TYPE: {type(e).__name__}"
                               +f"\nERROR PLACE: LINE {e.line}, COL {e.column}"
-                              +f"\nEXCEPT {e.expected} BUT GIVEN \"{e.token[0]}\""
+                              +f"\nEXCEPT {e.expected} BUT GIVEN \"{e.token[0] if  len(e.token) > 0 else ''}\""
                               +f"\nON STAGE: {self.stage_name}")
         # 符号非法
         except lark.exceptions.UnexpectedCharacters as e:

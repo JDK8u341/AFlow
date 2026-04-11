@@ -91,6 +91,7 @@ async def get_remaining_process(use_process_num: int,is_user_set=False) -> int:
 class Handle(ABC):
     def __init__(self,*args,**kwargs):
         self.hid = None
+        self.lock = asyncio.Lock()
 
     # 懒生成hid
     def get_hid(self):
@@ -118,7 +119,8 @@ class Handle(ABC):
 
     #并发处理
     async def concurrency_handle(self,data: T,context_bag:"ContextBag") -> tuple[V,"ContextBag","Handle"]:
-        clean_context_bag = await context_bag.get_clear_context_bag()   #获取干净副本
+        async with context_bag.lock:
+            clean_context_bag = await context_bag.get_clear_context_bag()   #获取干净副本
         res = await self.handle(data,clean_context_bag) #使用干净副本处理
         # 如果是单层调用则手动更新
         if isinstance(self,Layer):
@@ -200,6 +202,7 @@ class ContextBag:
     def __init__(self,*contexts: "Context"):
         self.contexts = {context.CONTEXT_TYPE_NAME:context for context in contexts} #携带的上下文
         self.reg = {}   # 携带的数据
+        self.lock = asyncio.Lock()
     # 工厂方法：创建上下文包
     @classmethod
     async def create(cls,*contexts: "Context") -> "ContextBag":
@@ -293,7 +296,7 @@ class ConcurrencyLayer(Layer,ABC):
 
     # 静态方法: 收集并合并数据
     @staticmethod
-    async def merge_and_collect(results,context_bag:"ContextBag",hid_map,*handlers):
+    async def merge_and_collect(results, context_bag:"ContextBag", hid_map):
         res_datas = []  #数据列表
         is_exit = False  # 包含退出信号
         is_break_model = False  # 包含跳出模型信号
@@ -315,12 +318,14 @@ class ConcurrencyLayer(Layer,ABC):
                 # 解包数据
                 result, _context_bag,handler = i
                 # 合并上下文
-                await context_bag.merge(_context_bag, concurrency_merge=True)
+                async with context_bag.lock:
+                    await context_bag.merge(_context_bag, concurrency_merge=True)
                 # 合并handler
                 for l in hid_map[handler.get_hid()]:
                     if not l.NO_MERGE:
-                        await l.merge(handler)
-                        await l.merge_all()
+                        async with l.lock:
+                            await l.merge(handler)
+                            await l.merge_all()
 
 
             # 重新包装包含特殊控制流信号的列表
@@ -402,8 +407,9 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
                         #遍历层和模型的列表
                         for l in self.layer_or_model_s:
                             #上报处理
-                            task = p.apply((await l.copy()).concurrency_handle, (data,context_bag))
-                            tasks.append(task)
+                            async with l.lock:
+                                task = p.apply((await l.copy()).concurrency_handle, (data,context_bag))
+                                tasks.append(task)
                         try:
                             result = await asyncio.gather(*tasks,return_exceptions=True)
                         finally:
@@ -420,7 +426,7 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
             result = await asyncio.gather(*[(await l.copy()).set_hid(l.get_hid()).concurrency_handle(data,context_bag) for l in self.layer_or_model_s],return_exceptions=True)
 
         #合并上下文并收集结果
-        res_datas = await self.merge_and_collect(result, context_bag,self.hid_map,*self.layer_or_model_s)
+        res_datas = await self.merge_and_collect(result, context_bag, self.hid_map)
         return res_datas
 
 
@@ -451,13 +457,14 @@ class MapConcurrencyLayer(ConcurrencyLayer):
             while True:
                 num = await get_remaining_process(use, is_user_set=self.use_process_num is not None)
                 if num > 0:
-                    try:
-                        async with Pool(processes=num) as p:
-                            results = await p.starmap((await self.layer_or_model.copy()).concurrency_handle, iter(zip(data,itertools.repeat(context_bag, len(data))))) #批量提交
-                    finally:
-                        with USE_P_LOCK:
-                            USE_PROCESS.value -= num
-                    break
+                    async with self.layer_or_model.lock:
+                        try:
+                            async with Pool(processes=num) as p:
+                                results = await p.starmap((await self.layer_or_model.copy()).concurrency_handle, iter(zip(data,itertools.repeat(context_bag, len(data))))) #批量提交
+                        finally:
+                            with USE_P_LOCK:
+                                USE_PROCESS.value -= num
+                        break
                 else:
                     retry_count += 1
                     await asyncio.sleep(delay=delay_time(retry_count))
@@ -465,7 +472,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
         else:
             results = await asyncio.gather(*[(await self.layer_or_model.copy()).set_hid(self.layer_or_model.get_hid()).concurrency_handle(d,context_bag) for d in data],return_exceptions=True)
 
-        res_datas = await self.merge_and_collect(results, context_bag,self.hid_map,self.layer_or_model)
+        res_datas = await self.merge_and_collect(results, context_bag, self.hid_map)
 
         return res_datas
 
@@ -749,7 +756,8 @@ class Model(Handle):  # 模型？？？？
                                    f"\n{e}"
                                    f"\nAt the {layer_cnt}-th Layer {l} Of Model <{self.name}> ") \
                     from e
-            await context_bag.update_contexts(l,new_data,isinstance(l,ConcurrencyLayer))   #更新上下文
+            async with context_bag.lock:
+                await context_bag.update_contexts(l,new_data,isinstance(l,ConcurrencyLayer))   #更新上下文
             #检查信号
             # print(f"new_data := {new_data}")
             # print(type(new_data))

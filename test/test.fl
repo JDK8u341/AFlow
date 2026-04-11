@@ -1,56 +1,43 @@
-@aflow {std,testd}
+@aflow {std}
 @in_parma "Hello World"
 
 model lib{
-    # map test_l("Hello World!")
-      parallel("true") {
-        test_l("Hello World!"),
-        test_l("hEllo wOrld!"),
-        test_l(int_tuple`1,3,4,5`)
+    map print("Hello World!")
+    ->  parallel("true") {
+        print("Hello World!"),
+        print("hEllo wOrld!"),
+        print(int_tuple`1,3,4,5`)
     }
     -> parallel {
         model a{
-            test_l("23")
-        }
-    }
-    -> test_l(2)
-    -> test_l(3)
-    -> redo
-        select tc("s1") {
-            model s1{
-                print("s1")
-            },
-            model s2{
-                print("s2")
-            }
-        }
-    $l
-    -> test_l(3)
-    -> print($PyObj)
-    -> do tadd(1)
-        while tw(7)
-    -> test_l(4)
-    -> print
-    -> m = model sub {
-        rect
-        -> &m
-    }
-    -> cmp(">=",7)
-    -> select if {
-        model then {
-            cmp(">=",7)
-            -> print("then")
-            -> select if {
-                model then {
-                    print("then then")
-                }
-            }
+            print("23")
         },
-        model else {
-            print("else")
+        model b{
+            print("234")
         }
     }
-    -> print($l)
-    -> exec("import random as rd\nresult = rd.random()")
-    -> print
+#    -> print(2)
+#    -> print(3)
+#    -> print(3)
+#    -> print
+#    -> print(4)
+#    -> print
+#    -> cmp(">=",7)
+#    -> select if {
+#        model then {
+#            cmp(">=",7)
+#            -> print("then")
+#            -> select if {
+#                model then {
+#                    print("then then")
+#                }
+#            }
+#        },
+#        model else {
+#            print("else")
+#        }
+#    }
+#    -> print
+#    -> exec("import random as rd\nresult = rd.random()")
+#    -> print
 }
