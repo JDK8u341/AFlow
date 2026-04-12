@@ -17,7 +17,7 @@ from aflow import (
 
 # ---------- 辅助工具：一个简单的累加层 ----------
 class AddLayer(Layer):
-    NO_MERGE = True
+    NO_STATE = True
     """将数据加上固定值"""
     def __init__(self, delta):
         super().__init__()
@@ -28,7 +28,7 @@ class AddLayer(Layer):
 
 
 class MultiplyLayer(Layer):
-    NO_MERGE = True
+    NO_STATE = True
     """将数据乘以固定值"""
     def __init__(self, factor):
         super().__init__()
@@ -63,7 +63,7 @@ async def t_map_concurrency():
 async def t_map_concurrency_with_signal():
     print("\n=== 测试 MapConcurrencyLayer 信号合并 ===")
     class SignalLayer(Layer):
-        NO_MERGE = True
+        NO_STATE = True
         """根据输入返回不同信号"""
         async def handle(self, data, context_bag):
             if data == 2:
@@ -118,12 +118,12 @@ async def t_apply_concurrency():
 async def t_apply_concurrency_signal():
     print("\n=== 测试 ApplyConcurrencyLayer 信号优先级 ===")
     class ExitLayer(Layer):
-        NO_MERGE = True
+        NO_STATE = True
         async def handle(self, data, context_bag):
             return DataWithSignal(data + 100, Signal.EXIT)
 
     class NormalLayer(Layer):
-        NO_MERGE = True
+        NO_STATE = True
         async def handle(self, data, context_bag):
             return data * 3
 
@@ -150,6 +150,7 @@ async def t_apply_concurrency_signal():
 class CounterContext(Context):
     CONTEXT_TYPE_NAME = "CounterContext"
     def __init__(self):
+        super().__init__()
         self.count = 0
 
     async def init_context(self, context_bag):
@@ -174,7 +175,7 @@ class CounterContext(Context):
 
 
 class CountingLayer(Layer):
-    NO_MERGE = True
+    NO_STATE = True
     """每次处理给上下文计数器加1，并返回数据+1"""
     async def handle(self, data, context_bag):
         ctx = context_bag.get_context("CounterContext")

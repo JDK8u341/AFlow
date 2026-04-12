@@ -260,7 +260,8 @@ class RetSignal(Layer):
 class LayerCnt(Context):
     CONTEXT_TYPE_NAME = "LayerCnt"
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
         self.cnt = 0    #总计数
         self.merge_cnt = 0  #合并计数
 

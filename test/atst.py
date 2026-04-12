@@ -7,16 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import lark
 import sys,os
+
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))+'\\..\\src\\')
 
-from aflow import (
-    Signal, DataWithSignal, MAX_PROCESS_COUNT, MAX_WAIT_TIME,
-    delay_time, get_remaining_process,
-    Handle, Layer, ConcurrencyLayer, Context, ContextBag, Model,
-    ApplyConcurrencyLayer, MapConcurrencyLayer, RetryLayer, ChoiceLayer,
-    LoopLayer, WhileLoopLayer, IterLoopLayer, ReDoLoopLayer, SimpleWhileLoopLayer,
-    ExitLayer, BreakModelLayer, SimpleFuncLayer
-)
+from aflow import *
 from ebnf import ebnf
 from std import (
     ControlFlagKey, PrintDataLayer, Assert, PyExec, PyEval, ConsoleInput,
@@ -42,7 +37,7 @@ async def context_bag_with_cnt():
 
 
 class DummyLayer(Layer):
-    NO_MERGE = False
+    NO_STATE = False
 
     def __init__(self, value=None):
         super().__init__()
@@ -56,8 +51,8 @@ class DummyLayer(Layer):
         return data
 
 
-class DummyStatefulLayer(Layer):
-    NO_MERGE = False
+class DummyStatefulLayer(StatefulLayer):
+    NO_STATE = False
 
     def __init__(self):
         super().__init__()
@@ -401,7 +396,7 @@ class TestModel:
         m2 = await m1.copy()
         assert m2.name == "m"
         assert len(m2.handles) == 1
-        # SimpleFuncLayer 的 NO_MERGE=True，copy 不会创建新实例，而是复用
+        # SimpleFuncLayer 的 NO_STATE=True，copy 不会创建新实例，而是复用
         assert m2.handles[0] is m1.handles[0]
         # 行为应一致
         assert await m1.run(1) == await m2.run(1)
