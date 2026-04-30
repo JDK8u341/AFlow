@@ -23,8 +23,8 @@ PROCESS_RESOURCE_ALLOC_RATIO = 0.2 # 进程资源分配比例
 #指数退避计算
 delay_time = lambda retry_count: min(BASE_WAIT_TIME * (2 ** min(retry_count,MAX_CALC_RETRY_COUNT)), MAX_WAIT_TIME) + random.random()
 
-T = TypeVar("T")
-V = TypeVar("V")
+_T = TypeVar("_T")
+_V = TypeVar("_V")
 
 
 class Signal(enum.Enum):
@@ -39,7 +39,7 @@ class Signal(enum.Enum):
 
 #包装类，包装数据和信号
 class DataWithSignal:
-    def __init__(self,data: T,signal: Signal = Signal.NORMAL):
+    def __init__(self, data: _T, signal: Signal = Signal.NORMAL):
         self.signal = signal    #信号
         self.data = data    #数据
 
@@ -48,24 +48,24 @@ class DataWithSignal:
         return self.signal
 
     #获取数据
-    def get_data(self) -> T:
+    def get_data(self) -> _T:
         return self.data
     #快速获取数据
-    def __call__(self) -> T:
+    def __call__(self) -> _T:
         return self.data
     #打印
     def __str__(self) -> str:
         return f"DataWithSignal<Data: {self.data}, Signal: {self.signal}>"
 
     #对于DIRECT_ITER的便捷数据获取处理
-    def __iter__(self) -> (Iterable[T] | "DataWithSignal"):
+    def __iter__(self) -> (Iterable[_T] | "DataWithSignal"):
         if self.signal == Signal.DIRECT_ITER:
             return iter(self.data)
         else:
             raise TypeError(f"This signal IS NOT DIRECT_ITER,it's {self.signal}")
 
     # 对于DIRECT_ITER的便捷处理
-    def __aiter__(self) -> (AsyncIterable[T] | "DataWithSignal"):
+    def __aiter__(self) -> (AsyncIterable[_T] | "DataWithSignal"):
         if self.signal == Signal.DIRECT_ITER:
             return aiter(self.data)
         else:
@@ -88,6 +88,8 @@ async def get_remaining_process(use_process_num: int,is_user_set=False) -> int:
 
 # Handle抽象基类
 class Handle(ABC):
+    NO_LOCK = True
+
     def __init__(self):
         self.hid = None
 
@@ -112,11 +114,11 @@ class Handle(ABC):
         raise NotImplementedError("Stateful Handler Must Define Function \"merge_all\"")
 
     @abc.abstractmethod
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         raise NotImplementedError
 
     #并发处理
-    async def concurrency_handle(self,data: T,context_bag:"ContextBag") -> tuple[V,"ContextBag","Handle"]:
+    async def concurrency_handle(self, data: _T, context_bag: "ContextBag") -> tuple[_V, "ContextBag", "Handle"]:
         clean_context_bag = await lock_call(context_bag,context_bag.get_clear_context_bag())   #获取干净副本
         res = await lock_call(self,self.handle(data,clean_context_bag)) #使用干净副本处理
         # 如果是单层调用则手动更新
@@ -128,7 +130,7 @@ class Handle(ABC):
     # 复制单个实例
     @staticmethod
     async def copy_one_handler(handle):
-        if not handle.NO_STATE:
+        if not handle.NO_LOCK:
             return await lock_call(handle,handle.copy())
         else:
             return handle
@@ -141,15 +143,15 @@ class Handle(ABC):
 
 
 class Layer(Handle,ABC):   #抽象基类Layer
-    NO_STATE = True
+    NO_LOCK = True
 
     @abc.abstractmethod
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":   # 每个层自己的处理方法
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":   # 每个层自己的处理方法
         raise NotImplementedError
 
 # 有状态的层
 class StatefulLayer(Layer,ABC):
-    NO_STATE = False
+    NO_LOCK = False
     def __init__(self):
         super().__init__()
         self.lock = AsyncRLock()
@@ -173,7 +175,7 @@ class Context(ABC):
 
     #每层更新钩子
     @abc.abstractmethod
-    async def update(self,context_bag:"ContextBag",now_layer: Layer,data: "T"):
+    async def update(self, context_bag:"ContextBag", now_layer: Layer, data: "_T"):
         raise NotImplementedError
 
     # 并发合并方法，用于与另一个同类型上下文并发合并
@@ -183,12 +185,12 @@ class Context(ABC):
 
     #并发层更新钩子
     @abc.abstractmethod
-    async def concurrency_update(self,context_bag:"ContextBag",now_layer: Layer,data: "T"):
+    async def concurrency_update(self, context_bag:"ContextBag", now_layer: Layer, data: "_T"):
         raise NotImplementedError
 
     #合并方法，用于与另一个同类型上下文直接合并
     @abc.abstractmethod
-    async def direct_merge(self,context:"Context") -> "T":
+    async def direct_merge(self,context:"Context") -> "_T":
         raise NotImplementedError
 
     #复制方法，用于获取干净副本
@@ -204,7 +206,7 @@ class Context(ABC):
 # 上下文包
 class ContextBag:
 
-    NO_STATE = False
+    NO_LOCK = False
     def __init__(self,*contexts: "Context"):
         self.contexts = {context.CONTEXT_TYPE_NAME:context for context in contexts} #携带的上下文
         self.reg = {}   # 携带的数据
@@ -232,7 +234,7 @@ class ContextBag:
             self.contexts[context_obj.CONTEXT_TYPE_NAME] = context_obj     #否则添加
 
     # 更新上下文
-    async def update_contexts(self,now_layer: "Layer",data: T,is_concurrency: bool):
+    async def update_contexts(self, now_layer: "Layer", data: _T, is_concurrency: bool):
         # 遍历更新
         if not is_concurrency:
             for con in self.contexts.values():
@@ -280,10 +282,10 @@ class ContextBag:
 
 # 抽象基类：并发层
 class ConcurrencyLayer(Layer,ABC):
-    NO_STATE = True
+    NO_LOCK = True
     # 抽象方法：处理
     @abc.abstractmethod
-    async def handle(self, data:"T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         raise NotImplementedError
 
     # 静态方法：获取UUID -> OBJ映射表
@@ -332,7 +334,7 @@ class ConcurrencyLayer(Layer,ABC):
                     hid = handler.get_hid()
                     tasks = []
                     for l in hid_map[hid]:
-                        if not l.NO_STATE:
+                        if not l.NO_LOCK:
                             # 添加到hid列表
                             hid_set.add(hid)
                             tasks.append(lock_call(l,l.merge(handler)))
@@ -402,7 +404,7 @@ class ApplyConcurrencyLayer(ConcurrencyLayer):
         self.use_process_num = use_process_num  # 进程数量限制
         self.hid_map = self.get_map_of_uuid_to_handler(self.layer_or_model_s) # hid映射表
 
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         global USE_PROCESS
 
         if len(self.layer_or_model_s) == 0: #如果是空的则直接返回
@@ -455,7 +457,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
         self.use_process_num = use_process_num  # 限制进程数量
         self.hid_map = {self.layer_or_model.get_hid():[self.layer_or_model]} # HID 映射表
 
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         global USE_PROCESS
 
         if (not isinstance(data, Iterable)) or isinstance(data, (str, bytes)):   # 如果不是可迭代或者需要按字面解析的迭代器或者是错误信号则手动包裹
@@ -495,7 +497,7 @@ class MapConcurrencyLayer(ConcurrencyLayer):
 
 #特殊Layer：重试
 class RetryLayer(Layer):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, retry_num: int, catch_err_type: type[Exception], try_handle: Union[Layer, "Model"],
                  fatal_handle: Union[Layer, "Model"] = None):
         super().__init__()
@@ -535,18 +537,18 @@ class RetryLayer(Layer):
 
 #特殊Layer：选择
 class ChoiceLayer(Layer, ABC):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, *choices: "Model"):
         super().__init__()
         self.choices:dict[str,"Model"] = {m.get_name():m for m in choices}
 
     #抽象方法choice，必须由子层实现
     @abc.abstractmethod
-    async def choice(self, data: T,context_bag:"ContextBag") -> "Model":
+    async def choice(self, data: _T, context_bag: "ContextBag") -> "Model":
         raise NotImplementedError
 
     #处理
-    async def handle(self, data: T,context_bag:"ContextBag"):
+    async def handle(self, data: _T, context_bag: "ContextBag"):
         choice_ = await self.choice(data,context_bag)    #调用选择方法
         return await choice_.run(data,context_bag)
 
@@ -555,17 +557,17 @@ class ChoiceLayer(Layer, ABC):
 
 #特殊Layer：循环
 class LoopLayer(Layer, ABC):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, loops: Union["Model", Layer]):
         super().__init__()
         self.loops = loops  #循环体
 
     @abc.abstractmethod
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         raise NotImplementedError
 
     #处理循环体调用
-    async def handle_call(self, data: T,context_bag:ContextBag,i = None) -> tuple[V,bool]:
+    async def handle_call(self, data: _T, context_bag:ContextBag, i = None) -> tuple[_V,bool]:
         new_data = await self.loops.handle(DataWithSignal((data, i), Signal.DIRECT_ITER),context_bag) if i is not None else await self.loops.handle(data,context_bag)
         if isinstance(new_data, DataWithSignal):
             #对于EXIT信号直接退出（传出信号）
@@ -585,15 +587,15 @@ class LoopLayer(Layer, ABC):
 
 #特殊Layer: While循环
 class WhileLoopLayer(LoopLayer, ABC):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, loops: Union["Model",Layer]):
         super().__init__(loops)
 
     @abc.abstractmethod
-    async def do_while(self, data: T,context_bag:"ContextBag") -> bool:
+    async def do_while(self, data: _T, context_bag: "ContextBag") -> bool:
         raise NotImplementedError
 
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         while await self.do_while(data,context_bag):
             #处理调用
             data,is_ret = await self.handle_call(data,context_bag)
@@ -604,12 +606,12 @@ class WhileLoopLayer(LoopLayer, ABC):
 
 #工具Layer：Iter循环
 class IterLoopLayer(LoopLayer):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self,_iter: Iterable | AsyncIterable,loops: Union["Model",Layer]):
         super().__init__(loops)
         self._iter = _iter
 
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         if isinstance(self._iter,AsyncIterable):
             #对于异步迭代器使用异步迭代
             async for i in self._iter:
@@ -627,12 +629,12 @@ class IterLoopLayer(LoopLayer):
 
 #工具Layer：ReDo循环
 class ReDoLoopLayer(LoopLayer):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, loops: Union["Model",Layer],loop_num):
         super().__init__(loops)
         self.do_num = loop_num
 
-    async def handle(self, data: T,context_bag:"ContextBag") -> V:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _V:
         cnt = 0 #计数器
         #如果计数器比目标次数小
         while cnt < self.do_num:
@@ -647,13 +649,13 @@ class ReDoLoopLayer(LoopLayer):
 
 #工具Layer：简单While循环
 class SimpleWhileLoopLayer(WhileLoopLayer):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self, loops: Union["Model",Layer],do_while_func):
         super().__init__(loops)
         self.do_while_func = do_while_func  #循环判断函数
         self.is_func_async = inspect.iscoroutinefunction(do_while_func) #是否为异步函数
 
-    async def do_while(self, data: T,context_bag:"ContextBag") -> bool:
+    async def do_while(self, data: _T, context_bag: "ContextBag") -> bool:
         #返回调用结果
         return await call_func(self,self.is_func_async,False,self.do_while_func,data,context_bag)
 
@@ -661,27 +663,27 @@ class SimpleWhileLoopLayer(WhileLoopLayer):
 class ExitLayer(Layer):
     def __init__(self):
         super().__init__()
-    async def handle(self, data: T,context_bag:"ContextBag") -> T:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _T:
         return DataWithSignal(data,Signal.EXIT)
 
 #工具Layer：跳出模型
 class BreakModelLayer(Layer):
-    NO_STATE = True
+    NO_LOCK = True
     def __init__(self):
         super().__init__()
-    async def handle(self, data: T,context_bag:"ContextBag") -> T:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _T:
         return DataWithSignal(data, Signal.BREAK_MODEL)
 
 #工具Layer：函数包装
 class SimpleFuncLayer(Layer):
-    NO_STATE = True
-    def __init__(self, func: Callable[[T, ContextBag], V], ret_data_self=False):
+    NO_LOCK = True
+    def __init__(self, func: Callable[[_T, ContextBag], _V], ret_data_self=False):
         super().__init__()
         self.func = func
         self.is_func_async = inspect.iscoroutinefunction(func)
         self.ret_data_self = ret_data_self
 
-    async def handle(self, data: T,context_bag:"ContextBag") -> T:
+    async def handle(self, data: _T, context_bag: "ContextBag") -> _T:
         if not self.ret_data_self:
             return await call_func(self,self.is_func_async,False,self.func,data,context_bag)
         else:
@@ -694,36 +696,36 @@ class Model(Handle):  # 模型？？？？
         self.name: str = name   #名称
         self.handles: list[Layer | Model] = []   #层合集
         self.context_clss = context_clss if context_clss is not None else []    # 初始上下文
-        self._NO_STATE_FLAG_CACHE = self.CALC_NO_STATE_FLAG()
-        self._NO_STATE_DIRTY_FLAG = False
+        self._NO_LOCK_FLAG_CACHE = self.CALC_NO_LOCK_FLAG()
+        self._NO_LOCK_DIRTY_FLAG = False
         self.lock = AsyncRLock()
 
-    def CALC_NO_STATE_FLAG(self):
-        return all(i.NO_STATE for i in self.handles)
+    def CALC_NO_LOCK_FLAG(self):
+        return all(i.NO_LOCK for i in self.handles)
 
     @property
-    def NO_STATE(self):
-        if self._NO_STATE_DIRTY_FLAG:
-            self._NO_STATE_FLAG_CACHE = self.CALC_NO_STATE_FLAG()
-            self._NO_STATE_DIRTY_FLAG = False
-        return self._NO_STATE_FLAG_CACHE   # 是否无状态
+    def NO_LOCK(self):
+        if self._NO_LOCK_DIRTY_FLAG:
+            self._NO_LOCK_FLAG_CACHE = self.CALC_NO_LOCK_FLAG()
+            self._NO_LOCK_DIRTY_FLAG = False
+        return self._NO_LOCK_FLAG_CACHE   # 是否无状态
 
     #添加一个层
     def layer(self, layer_: Layer) -> "Model":
         self.handles.append(layer_)
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个子模型
     def model(self, model_: "Model") -> "Model":
         self.handles.append(model_)
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个简单func层
-    def func_layer(self, func: Callable[[T,ContextBag], V],return_data_self=False) -> "Model":
+    def func_layer(self, func: Callable[[_T, ContextBag], _V], return_data_self=False) -> "Model":
         self.handles.append(SimpleFuncLayer(func,ret_data_self=return_data_self))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个Apply并发
@@ -732,7 +734,7 @@ class Model(Handle):  # 模型？？？？
             raise ValueError("use_process_num must be >= 1")
         self.handles.append(
             ApplyConcurrencyLayer(layer_or_model_s, is_cpu_dense=cpu_dense, use_process_num=use_process))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个Map并发
@@ -740,41 +742,41 @@ class Model(Handle):  # 模型？？？？
         if cpu_dense and use_process is not None and use_process < 1:
             raise ValueError("use_process_num must be >= 1")
         self.handles.append(MapConcurrencyLayer(layer_or_model, is_cpu_dense=cpu_dense, use_process_num=use_process))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个for循环
     def redo_loop(self, loops: "Model",loop_num: int) -> "Model":
         self.handles.append(ReDoLoopLayer(loops, loop_num))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个简单while循环
-    def while_loop(self, loops: "Model",do_while:Callable[[T,ContextBag],bool]) -> "Model":
+    def while_loop(self, loops: "Model", do_while:Callable[[_T, ContextBag],bool]) -> "Model":
         self.handles.append(SimpleWhileLoopLayer(loops, do_while))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个迭代器循环
     def iter_loop(self, loops: "Model",_iter:Iterable | AsyncIterable) -> "Model":
         self.handles.append(IterLoopLayer(_iter, loops))
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个终止
     def exit(self) -> "Model":
         self.handles.append(ExitLayer())
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #添加一个跳出
     def break_model(self) -> "Model":
         self.handles.append(BreakModelLayer())
-        self._NO_STATE_DIRTY_FLAG = True
+        self._NO_LOCK_DIRTY_FLAG = True
         return self
 
     #运行方法
-    async def run(self, data: T = None,context_bag: ContextBag = None) -> V:
+    async def run(self, data: _T = None, context_bag: ContextBag = None) -> _V:
         # 层运行计数
         layer_cnt = 0
         new_data = data
@@ -831,7 +833,7 @@ class Model(Handle):  # 模型？？？？
     def set_handles(self,*handles) -> None:
         self.handles = list(handles)
 
-    async def handle(self, data: T,context_bag:ContextBag | None = None) -> V:
+    async def handle(self, data: _T, context_bag: ContextBag | None = None) -> _V:
         return await self.run(data,context_bag=context_bag)
 
     def __str__(self) -> str:
@@ -854,125 +856,11 @@ class Model(Handle):  # 模型？？？？
             for i in range(other_len):
                 other_handle = other.handles[i]
                 self_handle = self.handles[i]
-                if not other_handle.NO_STATE or self_handle.NO_STATE:
+                if not other_handle.NO_LOCK or self_handle.NO_LOCK:
                     await lock_call(self_handle,self_handle.merge(other_handle))
         else:
             raise RuntimeError("Merge Handles Count MUST Same!!!")
 
     # 合并全部
     async def merge_all(self):
-        return asyncio.gather(lock_call(l,l.merge_all()) for l in self.handles if not l.NO_STATE)
-
-
-# 请注意,以下装饰器已经弃用,会导致多进程序列化问题和DSL参数解析错误,请手动继承对应基类并实现对应方法
-# class DecoratorLayer(Layer):
-#         def __init__(self,func,has_state,*args,**kwargs):  #函数参数
-#             self.args = args
-#             self.kwargs = kwargs
-#             self.has_state = has_state
-#             self.func = func
-#             self.is_async = inspect.iscoroutinefunction(func)    #是否为异步函数
-#         async def handle(self, data,context_bag:"ContextBag"):
-#             return await call_func(self,self.is_async, self.has_state, self.func,*(data,context_bag, *self.args), **self.kwargs)
-#
-#         def __str__(self) -> str:
-#             return f"DecoratorLayer<Func = {self.func.__name__}>"
-#
-# #layer装饰器动态建类
-# def layer(func=None, *, has_state=False):
-#     # 当 @layer 被调用时（无括号），func 就是被装饰的函数
-#     if func is not None:
-#         # 直接装饰函数，使用默认的 has_state=False
-#         return _create_layer_decorator(func, has_state=False)
-#
-#     # 当 @layer() 或 @layer(has_state=True) 被调用时
-#     def decorator(f):
-#         return _create_layer_decorator(f, has_state)
-#
-#     return decorator
-# #创建函数
-# def _create_layer_decorator(func: Union[Callable[[T,ContextBag,Any],V],Callable[["DecoratorLayer", T,ContextBag, Any],V]], has_state=False):
-#
-#         def wrapper(*args, **kwargs):
-#                 #返回这个动态建立的类
-#                 return DecoratorLayer(func,has_state,*args, **kwargs)
-#         return wrapper
-#
-# class DecoratorChoiceLayer(ChoiceLayer):
-#         def __init__(self,func,has_state,*args,**kwargs):  #函数参数
-#             super().__init__()
-#             self.args = args
-#             self.kwargs = kwargs
-#             self.has_state = has_state
-#             self.func = func
-#             self.is_async = inspect.iscoroutinefunction(func)
-#         async def choice(self, data: T,context_bag:"ContextBag"):
-#             return await call_func(self,self.is_async,self.has_state,self.func,*(data,context_bag,self.choices, *self.args),**self.kwargs)
-#         #设置分支模型
-#         def set_choices(self,*choices: Model):
-#             self.choices = {model.get_name():model for model in choices}
-#             return self
-#
-#         def __call__(self, *choices: Model):
-#             return self.set_choices(*choices)
-#
-#         def __str__(self) -> str:
-#             return f"DecoratorChoiceLayer<Func = {self.func.__name__}>"
-#
-# #choice装饰器动态建类
-# def choice(func=None, *, has_state=False):
-#     if func is not None:
-#         # 直接装饰函数，使用默认的 has_state=False
-#         return _create_choice_decorator(func, has_state=False)
-#
-#     def decorator(f):
-#         return _create_choice_decorator(f, has_state)
-#
-#     return decorator
-#
-# def _create_choice_decorator(func: Union[Callable[[T,ContextBag,dict[str,Model],Any],V],Callable[["DecoratorChoiceLayer", T,ContextBag, dict[str,Model], Any],V]], has_state=False):
-#         def wrapper(*args, **kwargs):
-#             #返回这个动态建立的类
-#             return DecoratorChoiceLayer(func,has_state,*args, **kwargs)
-#         return wrapper
-#
-# #while_loop_layer装饰器动态建类
-# def while_loop_layer(func=None, *, has_state=False):
-#     if func is not None:
-#         # 直接装饰函数，使用默认的 has_state=False
-#         return _create_while_loop_layer_decorator(func, has_state=False)
-#
-#     def decorator(f):
-#         return _create_while_loop_layer_decorator(f, has_state)
-#
-#     return decorator
-#
-#
-# class DecoratorWhileLoopLayer(WhileLoopLayer):
-#     def __init__(self,func,has_state, *args, **kwargs):  # 函数参数
-#         super().__init__(None)
-#         self.args = args
-#         self.kwargs = kwargs
-#         self.func = func
-#         self.is_async = inspect.iscoroutinefunction(func)
-#         self.has_state = has_state
-#
-#     async def do_while(self, data,context_bag:"ContextBag"):
-#         return await call_func(self, self.is_async, self.has_state, self.func, *(data,context_bag, *self.args), **self.kwargs)
-#
-#     def set_loop_model(self, loops: "Model") -> WhileLoopLayer:
-#         self.loops = loops
-#         return self
-#
-#     def __call__(self, loops: "Model") -> WhileLoopLayer:
-#         return self.set_loop_model(loops)
-#
-#     def __str__(self) -> str:
-#         return f"DecoratorWhileLoopLayer<Func = {self.func.__name__}>"
-#
-# #创建函数
-# def _create_while_loop_layer_decorator(func: Union[Callable[[T,ContextBag,Any],V],Callable[["DecoratorLayer", T,ContextBag, Any],V]], has_state=False):
-#         def wrapper(*args, **kwargs):
-#                 #返回这个动态建立的类
-#                 return DecoratorWhileLoopLayer(func,has_state,*args, **kwargs)
-#         return wrapper
+        return asyncio.gather(lock_call(l,l.merge_all()) for l in self.handles if not l.NO_LOCK)

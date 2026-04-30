@@ -265,7 +265,7 @@ class TransTreeToIR(lark.Transformer):
         # print(t)
         return Node(t[0].value,NodeType.REF,t[0])
 
-    # K-V
+    # K-_V
     def func_parma_kv(self,t):
         # print("FUNC_PARMA_KV")
         # print(t)

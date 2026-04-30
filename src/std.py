@@ -25,7 +25,7 @@ class PrintDataLayer(Layer):
         super().__init__()
         self.value = value
 
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         print(data if self.value is None else self.value)
         return data
 
@@ -37,7 +37,7 @@ class Assert(Layer):
         super().__init__()
         self.value = value
 
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         assert data == self.value
         return data
 
@@ -49,7 +49,7 @@ class PyExec(Layer):
         super().__init__()
         self.expr = expr
 
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         namespace = {'data':data,'context_bag':context_bag}
         exec(self.expr,namespace)
         if "result" in namespace.keys():
@@ -64,7 +64,7 @@ class PyEval(Layer):
         super().__init__()
         self.expr = expr
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         return eval(self.expr,{'data':data,'context_bag':context_bag})
 
 # 工具类：input
@@ -75,7 +75,7 @@ class ConsoleInput(Layer):
         super().__init__()
         self.value = value
 
-    async def handle(self, data: "T",context_bag:"ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         return input(self.value)
 
 
@@ -96,7 +96,7 @@ class PyCmpOperate(Layer):
         self.op_name = op_name
         self.other = other
         self.use_reg = use_reg
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         # 写上下文，不影响数据流
         context_bag.set(ControlFlagKey.CMP_FLAG, self.CMP_MAP[self.op_name](data, self.other if not self.use_reg  else context_bag.get(ControlFlagKey.CMP_OTHER_KEY)))
         return data
@@ -118,14 +118,14 @@ class PyOperate(Layer):
         self.op_name = op_name
         self.other = other
         self.use_reg = use_reg
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         return self.OP_MAP[self.op_name](data, self.other if not self.use_reg else context_bag.get(ControlFlagKey.PYOP_OTHER_KEY))
 
 # 工具类：if-else
 @reg.register_layer("if")
 class PyIf(ChoiceLayer):
     NO_MERGE = True
-    async def choice(self, data: T,context_bag:"ContextBag") -> "Model":
+    async def choice(self, data: _T, context_bag: "ContextBag") -> "Model":
         # 获取上下文判断
         if context_bag.have(ControlFlagKey.CMP_FLAG):
             if context_bag.get(ControlFlagKey.CMP_FLAG):
@@ -144,7 +144,7 @@ class PyIf(ChoiceLayer):
 @reg.register_layer("wif")
 class WhileIf(WhileLoopLayer):
     NO_MERGE = True
-    async def do_while(self, data: T,context_bag:"ContextBag") -> bool:
+    async def do_while(self, data: _T, context_bag: "ContextBag") -> bool:
         return context_bag.have(ControlFlagKey.CMP_FLAG) and context_bag.get(ControlFlagKey.CMP_FLAG)
 
 # 工具函数：判断并获取key
@@ -170,7 +170,7 @@ class SetToContextReg(Layer):
         super().__init__()
         self.reg_k = reg_k
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         # 获取操作键
         reg_k = get_op_reg_key(self.reg_k,context_bag)
         # 设置
@@ -187,7 +187,7 @@ class ReadFromContextReg(Layer):
         super().__init__()
         self.reg_k = reg_k
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         reg_k = get_op_reg_key(self.reg_k, context_bag)
         # 如果没找到则直接返回
         return context_bag.get(reg_k)
@@ -202,7 +202,7 @@ class SwapContextDataToReg(Layer):
         super().__init__()
         self.reg_k = reg_k
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         reg_k = get_op_reg_key(self.reg_k, context_bag)
         # 交换并返回
         new_data = context_bag.get(reg_k)
@@ -219,7 +219,7 @@ class SwapContextRegToReg(Layer):
         super().__init__()
         self.reg2_k = reg2_k
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         # data作为第一个寄存器的键
         reg2_k = get_op_reg_key(self.reg2_k, context_bag)
         # 交换并返回
@@ -237,7 +237,7 @@ class ConstValueLayer(Layer):
         super().__init__()
         self.value = value
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         return self.value
 
 # 工具类：返回特定信号
@@ -252,7 +252,7 @@ class RetSignal(Layer):
         super().__init__()
         self.signal = self.signal_map[signal_name]
 
-    async def handle(self, data: "T", context_bag: "ContextBag") -> "V":
+    async def handle(self, data: "_T", context_bag: "ContextBag") -> "_V":
         return DataWithSignal(data, self.signal)
 
 #工具上下文：LayerCnt，层计数
@@ -269,12 +269,12 @@ class LayerCnt(Context):
         #无流程
         return None
 
-    async def update(self,context_bag:"ContextBag",now_layer: Layer,data: "T"):
+    async def update(self, context_bag:"ContextBag", now_layer: Layer, data: "_T"):
         last_cnt = self.cnt #记录上一次计数
         self.cnt += 1   #增加1层经过计数
         print(f"UPDATE CNT {last_cnt} -> {self.cnt} on {now_layer}")
 
-    async def concurrency_update(self,context_bag:"ContextBag",now_layer: Layer,data: "T"):
+    async def concurrency_update(self, context_bag:"ContextBag", now_layer: Layer, data: "_T"):
         last_cnt = self.cnt  # 记录上一次计数
         self.cnt += self.merge_cnt #合并计数
         self.merge_cnt = 0 #清空合并计数

@@ -34,7 +34,7 @@ def chdir(path):
         os.chdir(old_cwd)
 
 async def lock_call(obj,coroutine):
-    if obj.NO_STATE:
+    if getattr(obj, 'NO_LOCK', True):
         return await coroutine
     else:
         async with obj.lock:
